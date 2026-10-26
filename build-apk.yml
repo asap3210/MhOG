@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Works both when the project files are in the repo root and when the
+      # project .zip itself was uploaded to the repo (it is unzipped here).
+      - name: Locate project (unzip if needed)
+        shell: bash
+        run: |
+          set -e
+          if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
+            PROJ="."
+          else
+            Z=$(find . -maxdepth 3 -iname '*.zip' -not -path './.git/*' | head -n 1)
+            if [ -z "$Z" ]; then echo "No Gradle project and no .zip found in the repository"; exit 1; fi
+            echo "Using $Z"
+            rm -rf _project && mkdir _project
+            unzip -q "$Z" -d _project
+            S=$(find _project -name 'settings.gradle*' -not -path '*/node_modules/*' | head -n 1)
+            if [ -z "$S" ]; then echo "settings.gradle(.kts) not found inside the zip"; exit 1; fi
+            PROJ=$(dirname "$S")
+          fi
+          echo "Project dir: $PROJ"
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build release APK
+        working-directory: ${{ env.PROJ }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "$PROJ"/app/build/outputs/apk/release/*.apk dist/GnW-Manhole.apk
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GnW-Manhole-APK
+          path: dist/GnW-Manhole.apk
